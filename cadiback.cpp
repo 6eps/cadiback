@@ -17,6 +17,7 @@ static const char * usage =
 "  -v | --verbose     increase verbosity (SAT solver needs three)\n"
 "  -V | --version     print version and exit\n"
 "\n"
+"  --no-temp          do not use temporary clauses\n"
 "  --no-constrain     use activation literals instead of 'constrain'\n"
 "  --no-filter        do not filter additional candidates\n"
 "  --no-fixed         do not use root-level fixed literal information\n"
@@ -188,6 +189,9 @@ static const char *big_no_els;
 // BIG. This can however have detrimental effects for KB3 and is disabled by
 // default. This option requires ELS.
 static const char *big_roots;
+
+// --no-temp 옵션 추가
+static const char *no_temp; // --no-temp option
 
 static int vars;        // The number of variables in the CNF.
 static int *fixed;      // The resulting fixed backbone literals.
@@ -1188,6 +1192,8 @@ int main (int argc, char **argv) {
       big_roots = arg;
       if (!big)
         big = arg;
+    } else if (!strcmp (arg, "--no-temp")) {
+      no_temp = arg;
     } else if (!strcmp (arg, "--default")) {
       no_filter = no_fixed = no_inprocessing = one_by_one = 0;
 #ifndef NFLIP
@@ -1225,6 +1231,12 @@ int main (int argc, char **argv) {
 
   if (one_by_one && no_constrain)
     die ("'%s' does not make sense with '%s'", no_constrain, one_by_one);
+
+  if (one_by_one && no_temp)
+    die ("'%s' does not make sense with '%s'", no_temp, one_by_one);
+
+  if (chunking && no_temp)
+    die ("'%s' does not make sense with '%s'", no_temp, chunking);
 
 #ifndef NFLIP
   if (no_flip && really_flip)
@@ -1270,6 +1282,11 @@ int main (int argc, char **argv) {
     msg ("using 'constrain' interface disabled by '%s'", no_constrain);
   else
     msg ("using 'constrain' interface (disable with '--no-constrain')");
+
+  if (no_temp)
+    msg ("using temporary clauses disabled by '%s'", no_temp);
+  else
+    msg ("using temporary clauses (disable with '--no-temp')");
 
   if (no_filter)
     msg ("filtering backbones by models disabled by '%s'", no_filter);
@@ -1642,30 +1659,30 @@ int main (int argc, char **argv) {
         }
 
         // If not disabled through '--one-by-one' use the 'constrain'
-	// optimization which assumes the disjunction of the negation of all
-	// remaining possible backbone candidate literals.  By default this
-	// uses the 'constrain' API call described in our FMCAD'21 paper
-	// (unless '--no-constrain' is specified in which case we use
-	// activation literals as in 'MiniBones')).
+        // optimization which assumes the disjunction of the negation of all
+        // remaining possible backbone candidate literals.  By default this
+        // uses the 'constrain' API call described in our FMCAD'21 paper
+        // (unless '--no-constrain' is specified in which case we use
+        // activation literals as in 'MiniBones')).
 
         // If the remaining backbone candidates are all actually backbones
-	// then only one such call can be enough to prove it. Otherwise
-	// without 'constraints' we need as many solver calls as there are
-	// candidates.  Without constrain this puts heavy load on the
-	// 'restore' algorithm which in some instances ended up taking 99%
-	// of the running time.
+        // then only one such call can be enough to prove it. Otherwise
+        // without 'constraints' we need as many solver calls as there are
+        // candidates.  Without constrain this puts heavy load on the
+        // 'restore' algorithm which in some instances ended up taking 99%
+        // of the running time.
 
-	// It seems reasonable to limit the size of the constraint (the
-	// number of negated candidate literals where one is assumed to be
-	// flippable) by some sort of chunking.  In contrast to earlier work
-	// in 'MiniBones' we adapt the limit during chunking as follows.  As
-	// long constraint was unsatisfiable (and all the contained
-	// candidates are thus fixed) we increase the limit on the
-	// considered candidates in the constraint exponentially (by the
-	// hard coded factor 10).  If the call returns a model we go back to
-	// checking candidates one-by-one.  If the following call returns
-	// unsatisfiable, we limit the size of the constraint to 10
-	// candidates next time etc.
+        // It seems reasonable to limit the size of the constraint (the
+        // number of negated candidate literals where one is assumed to be
+        // flippable) by some sort of chunking.  In contrast to earlier work
+        // in 'MiniBones' we adapt the limit during chunking as follows.  As
+        // long constraint was unsatisfiable (and all the contained
+        // candidates are thus fixed) we increase the limit on the
+        // considered candidates in the constraint exponentially (by the
+        // hard coded factor 10).  If the call returns a model we go back to
+        // checking candidates one-by-one.  If the following call returns
+        // unsatisfiable, we limit the size of the constraint to 10
+        // candidates next time etc.
 
         if (!one_by_one && chunking) {
           if (last == 20)
@@ -1711,6 +1728,10 @@ int main (int argc, char **argv) {
               solver->add (constraint[i]);
             solver->add (0);
             solver->assume (-activation_variable);
+          } else if (no_temp) {
+            for (int i = 0; i != assumed; i++)
+              solver->add (constraint[i]);
+            solver->add (0);
           } else {
             for (int i = 0; i != assumed; i++)
               solver->constrain (constraint[i]);
